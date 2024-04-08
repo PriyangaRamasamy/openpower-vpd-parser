@@ -271,5 +271,28 @@ size_t getVPDOffset(const nlohmann::json& parsedJson,
  * @return Parsed JSON.
  */
 nlohmann::json getParsedJson(const std::string& pathToJson);
+
+/**
+ * @brief API to get FRU hardware path
+ *
+ * Given a D-bus inventory path, this method returns the corresponding hardware
+ * (EEPROM) path.
+ *
+ * @param[in] i_jsonObj - JSON object.
+ * @param[in] i_invPath - Inventory path.
+ * @return Corresponding hardware path (or) empty path if given inventory path
+ * is invalid.
+ */
+std::string getHardwarePath(const nlohmann::json& i_jsonObj,
+                            const std::string& i_invPath);
+
+/**
+ * @brief API to get JSON object
+ *
+ * @param[in] i_jsonPath - Path to the JSON file
+ * @return JSON object.
+ */
+nlohmann::json getJsonObj(const std::string& i_jsonPath);
+
 } // namespace utils
 } // namespace vpd

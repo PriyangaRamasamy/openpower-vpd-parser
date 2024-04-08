@@ -482,5 +482,38 @@ nlohmann::json getParsedJson(const std::string& pathToJson)
         throw std::runtime_error("Failed to parse JSON file");
     }
 }
+
+std::string getHardwarePath(const nlohmann::json& i_jsonObj,
+                            const std::string& i_invPath)
+{
+    if (i_jsonObj.contains("frus"))
+    {
+        const nlohmann::json& listOfFrus =
+            i_jsonObj["frus"].get_ref<const nlohmann::json::object_t&>();
+
+        for (const auto& itemFRUS : listOfFrus.items())
+        {
+            const std::string& vpdFilePath = itemFRUS.key();
+
+            if (i_invPath ==
+                i_jsonObj["frus"][vpdFilePath].at(0).value("inventoryPath", ""))
+            {
+                return vpdFilePath;
+            }
+        }
+    }
+
+    return "";
+}
+
+nlohmann::json getJsonObj(const std::string& i_jsonPath)
+{
+    if (!std::filesystem::exists(i_jsonPath))
+    {
+        return nlohmann::json();
+    }
+
+    return getParsedJson(i_jsonPath);
+}
 } // namespace utils
 } // namespace vpd
