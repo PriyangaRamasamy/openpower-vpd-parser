@@ -32,5 +32,4 @@ types::VPDMapVariant Parser::parse()
 
     return parser->parse();
 }
-
 } // namespace vpd

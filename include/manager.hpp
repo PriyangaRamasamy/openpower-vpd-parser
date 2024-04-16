@@ -181,6 +181,9 @@ class Manager
 
     // Shared pointer to worker class
     std::shared_ptr<Worker> m_worker;
+
+    // VPD JSON object
+    nlohmann::json m_jsonObj;
 };
 
 } // namespace vpd

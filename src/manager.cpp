@@ -2,10 +2,15 @@
 
 #include "manager.hpp"
 
+#include "exceptions.hpp"
 #include "logger.hpp"
+#include "parser.hpp"
+#include "utils.hpp"
 
 #include <boost/asio/steady_timer.hpp>
 #include <sdbusplus/message.hpp>
+
+#include <fstream>
 
 namespace vpd
 {
@@ -27,6 +32,9 @@ Manager::Manager(
         // set async timer to detect if system VPD is published on D-Bus.
         SetTimerToDetectSVPDOnDbus();
 #endif
+
+        // Create VPD JSON Object
+        m_jsonObj = utils::getJsonObj(INVENTORY_JSON_SYM_LINK);
 
         // Register methods under com.ibm.VPD.Manager interface
         iFace->register_method("WriteKeyword",
@@ -119,8 +127,44 @@ void Manager::updateKeyword(const types::Path i_path,
     std::cout << "\nFRU path " << i_path;
     std::cout << "\nData " << i_data.index();
     std::cout << "\nTarget = " << static_cast<int>(i_target);
+    try
+    {
+        std::string l_vpdFilePath = i_path;
 
-    // On success return nothing. On failure throw error.
+        // Need to revisit on i_target parameter
+        // Current impl: Target = 0 (cache), 1 (hardware), 2 (both)
+        if (i_target != static_cast<uint8_t>(types::VpdTarget::Hardware))
+        {
+            l_vpdFilePath = utils::getHardwarePath(m_jsonObj, i_path);
+        }
+
+        // Get the VPD type and perform write operation
+        std::fstream l_vpdFileStream;
+        l_vpdFileStream.exceptions(std::ifstream::badbit |
+                                   std::ifstream::failbit);
+
+        auto l_vpdStartOffset = utils::getVPDOffset(m_jsonObj, l_vpdFilePath);
+
+        // Read the VPD data into a vector.
+        types::BinaryVector l_vpdVector;
+        utils::getVpdDataInVector(l_vpdFileStream, l_vpdFilePath, l_vpdVector,
+                                  l_vpdStartOffset);
+
+        // This will detect the type of parser required.
+        std::shared_ptr<vpd::ParserInterface> parser = ParserFactory::getParser(
+            l_vpdVector, l_vpdFilePath, l_vpdStartOffset);
+
+        parser->write(i_path, i_data, i_target);
+    }
+    catch (const EccException& ex)
+    {
+        logging::logMessage(ex.what());
+    }
+    catch (const std::exception& e)
+    {
+        logging::logMessage("D-bus write failed.");
+        throw;
+    }
 }
 
 types::BinaryVector Manager::readKeyword(const types::Path i_path,
