@@ -27,6 +27,15 @@ class ParserInterface
     virtual types::VPDMapVariant parse() = 0;
 
     /**
+     * @brief Virtual function to perform write on VPD of any type.
+     *
+     * The API can be overridden by classes inheriting this ParserInterface
+     * class to implement VPD write operation.
+     */
+    virtual void write(const types::Path, const types::VpdData, const uint8_t)
+    {}
+
+    /**
      * @brief Virtual destructor.
      */
     virtual ~ParserInterface() {}

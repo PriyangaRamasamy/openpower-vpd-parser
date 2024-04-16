@@ -64,7 +64,7 @@ static uint16_t readUInt16LE(types::BinaryVector::const_iterator iterator)
 
 bool IpzVpdParser::vhdrEccCheck()
 {
-    auto vpdPtr = m_vpdVector.cbegin();
+    const auto vpdPtr = m_vpdVector.begin();
 
     auto l_status =
         vpdecc_check_data(const_cast<uint8_t*>(&vpdPtr[Offset::VHDR_RECORD]),
@@ -189,7 +189,7 @@ bool IpzVpdParser::recordEccCheck(types::BinaryVector::const_iterator iterator)
         throw(EccException("Invalid ECC length or offset."));
     }
 
-    auto vpdPtr = m_vpdVector.cbegin();
+    const auto vpdPtr = m_vpdVector.cbegin();
 
     if (vpdecc_check_data(
             const_cast<uint8_t*>(&vpdPtr[recordOffset]), recordLength,
@@ -288,7 +288,9 @@ types::RecordOffsetList
             // Verify the ECC for this Record
             if (!recordEccCheck(itrToPT))
             {
-                throw(EccException("ERROR: ECC check failed"));
+                std::string errorMsg = "ERROR: ECC check failed for record " +
+                                       recordName;
+                throw(EccException("ERROR: ECC check failed for record "));
             }
         }
         catch (const EccException& ex)
@@ -368,7 +370,6 @@ types::IPZVpdMap::mapped_type
             // Note keyword data length
             kwdDataLength = *itrToKwds;
 
-            // Jump past keyword length
             std::advance(itrToKwds, sizeof(types::KwSize));
         }
 
@@ -441,4 +442,215 @@ types::VPDMapVariant IpzVpdParser::parse()
     }
 }
 
+void IpzVpdParser::updateThisRecKw(
+    types::BinaryVector::const_iterator& itrToVPD, const auto ptLength,
+    const auto thisRecord, const auto thisKeyword, const auto thisValue)
+{
+    auto end = itrToVPD;
+    std::advance(end, ptLength);
+
+    size_t thisRecordOffset = 0;
+
+    // Go through VTOC and find the details of the record which we are
+    // interested in. Details like record offset, ECC offset and verify ECC for
+    // the the record which we are interested in.
+    while (itrToVPD < end)
+    {
+        std::string recordName(itrToVPD, itrToVPD + Length::RECORD_NAME);
+
+        // Continue to next record until we find the record which we are
+        // interested.
+        if (recordName != thisRecord)
+        {
+            std::advance(
+                itrToVPD,
+                Length::RECORD_NAME + sizeof(types::RecordType) +
+                    sizeof(types::RecordOffset) + sizeof(types::RecordLength) +
+                    sizeof(types::ECCOffset) + sizeof(types::ECCLength));
+            continue;
+        }
+
+        // Skip record name and record type
+        std::advance(itrToVPD, Length::RECORD_NAME + sizeof(types::RecordType));
+
+        // save the record offset
+        thisRecordOffset = readUInt16LE(itrToVPD);
+
+        // Verify ECC for this Record
+        if (!recordEccCheck(itrToVPD))
+        {
+            std::string errorMsg = "ERROR: ECC check failed for record " +
+                                   recordName;
+            throw(EccException(errorMsg));
+        }
+
+        // We are good to proceed with operations on this record
+        break;
+    }
+
+    // save record length, ecc offset, ecc length
+    auto iteratorToFetchDetails = itrToVPD;
+    std::advance(iteratorToFetchDetails, sizeof(types::RecordOffset));
+    auto recordLength = readUInt16LE(iteratorToFetchDetails);
+
+    if (thisRecordOffset == 0 || recordLength == 0)
+    {
+        throw(DataException("Invalid record offset or length"));
+    }
+
+    std::advance(iteratorToFetchDetails, sizeof(types::RecordLength));
+    std::size_t eccOffset = readUInt16LE(iteratorToFetchDetails);
+
+    std::advance(iteratorToFetchDetails, sizeof(types::ECCOffset));
+    std::size_t eccLength = readUInt16LE(iteratorToFetchDetails);
+
+    if (eccLength == 0 || eccOffset == 0)
+    {
+        throw(EccException("Invalid ECC length or offset."));
+    }
+
+    // Jump to the record data
+    auto recordNameOffset = thisRecordOffset + sizeof(types::RecordId) +
+                            sizeof(types::RecordSize) +
+                            // Skip past the RT keyword, which contains
+                            // the record name.
+                            Length::KW_NAME + sizeof(types::KwSize);
+
+    // Get record name
+    auto itrToVPDStart = m_vpdVector.cbegin();
+    std::advance(itrToVPDStart, recordNameOffset);
+
+    std::string recordName(itrToVPDStart, itrToVPDStart + Length::RECORD_NAME);
+
+    // proceed to find contained keywords and their values.
+    std::advance(itrToVPDStart, Length::RECORD_NAME);
+
+    // Parse through the record to find the keyword which we are interested in.
+    while (true)
+    {
+        // Note keyword name
+        std::string kwdName(itrToVPDStart, itrToVPDStart + Length::KW_NAME);
+        if (constants::LAST_KW == kwdName)
+        {
+            // We're done
+            break;
+        }
+
+        // Check for Pound keyword which starts with #
+        char kwNameStart = *itrToVPDStart;
+
+        // Jump past keyword name
+        std::advance(itrToVPDStart, Length::KW_NAME);
+
+        std::size_t kwdDataLength = *itrToVPDStart;
+
+        if (constants::POUND_KW == kwNameStart)
+        {
+            // Note keyword data length
+            std::size_t lengthHighByte = *(itrToVPDStart + 1);
+            kwdDataLength |= (lengthHighByte << 8);
+
+            // Jump past 2Byte keyword length for pound keyword
+            std::advance(itrToVPDStart, sizeof(types::PoundKwSize));
+        }
+        else
+        {
+            std::advance(itrToVPDStart, sizeof(types::KwSize));
+        }
+
+        if (kwdName == thisKeyword)
+        {
+            // update the latest value and ecc
+            std::size_t lengthToUpdate = thisValue.size() <= kwdDataLength
+                                             ? thisValue.size()
+                                             : kwdDataLength;
+
+            // open EEPROM in filestream to update the keyword value and record
+            // ecc
+            m_vpdFileStream.exceptions(std::ifstream::badbit |
+                                       std::ifstream::failbit);
+
+            auto thisKwdOffset = std::distance(m_vpdVector.cbegin(),
+                                               itrToVPDStart);
+
+            auto iteratorToNewdata = thisValue.cbegin();
+            auto end = iteratorToNewdata;
+            std::advance(end, lengthToUpdate);
+
+            auto iteratorToKWdData = m_vpdVector.begin();
+            std::advance(iteratorToKWdData, thisKwdOffset);
+            std::copy(iteratorToNewdata, end, iteratorToKWdData);
+
+            m_vpdFileStream.seekp(m_vpdStartOffset + thisKwdOffset,
+                                  std::ios::beg);
+
+            std::copy(thisValue.cbegin(), thisValue.cbegin() + lengthToUpdate,
+                      std::ostreambuf_iterator<char>(m_vpdFileStream));
+
+            updateRecordECC(thisRecordOffset, recordLength, eccOffset,
+                            eccLength);
+            break;
+        }
+        std::advance(itrToVPDStart, kwdDataLength);
+    }
+}
+
+void IpzVpdParser::updateRecordECC(const auto& thisRecOffset,
+                                   const auto& thisRecSize,
+                                   const auto& thisRecECCoffset,
+                                   auto thisRecECCLength)
+{
+    auto itrToRecordData = m_vpdVector.begin();
+    std::advance(itrToRecordData, thisRecOffset);
+
+    auto itrToRecordECC = m_vpdVector.begin();
+    std::advance(itrToRecordECC, thisRecECCoffset);
+
+    auto l_status = vpdecc_create_ecc(
+        static_cast<uint8_t*>(&itrToRecordData[0]), thisRecSize,
+        static_cast<uint8_t*>(&itrToRecordECC[0]), &thisRecECCLength);
+    if (l_status != VPD_ECC_OK)
+    {
+        throw std::runtime_error("Ecc update failed");
+    }
+
+    auto end = itrToRecordECC;
+    std::advance(end, thisRecECCLength);
+
+    if (m_vpdFileStream.is_open())
+    {
+        m_vpdFileStream.exceptions(std::ifstream::badbit |
+                                   std::ifstream::failbit);
+        m_vpdFileStream.seekp(m_vpdStartOffset + thisRecECCOffset,
+                              std::ios::beg);
+        std::copy(itrToRecordECC, end,
+                  std::ostreambuf_iterator<char>(m_vpdFileStream));
+    }
+}
+
+void IpzVpdParser::write(const types::Path i_path, const types::VpdData i_data,
+                         const uint8_t i_target)
+{
+    auto itrToVPD = m_vpdVector.cbegin();
+
+    // Check vaidity of VHDR record
+    checkHeader(itrToVPD);
+
+    // Read Table of Contents
+    auto ptLen = readTOC(itrToVPD);
+
+    types::Record record;
+    types::Keyword keyword;
+    types::BinaryVector value;
+
+    // Extract record, keyword and value from i_data
+    if (const types::IpzData* ipzData = std::get_if<types::IpzData>(&i_data))
+    {
+        record = std::get<0>(*ipzData);
+        keyword = std::get<1>(*ipzData);
+        value = std::get<2>(*ipzData);
+    }
+    updateThisRecKw(itrToVPD, ptLen, record, keyword, value);
+    std::cout << "\nData updated successfully." << std::endl;
+}
 } // namespace vpd

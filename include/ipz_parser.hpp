@@ -33,8 +33,8 @@ class IpzVpdParser : public ParserInterface
      * @param[in] vpdStartOffset - Offset from where VPD starts in the file.
      * Defaulted to 0.
      */
-    IpzVpdParser(const types::BinaryVector& vpdVector,
-                 const std::string& vpdFilePath, size_t vpdStartOffset = 0) :
+    IpzVpdParser(types::BinaryVector vpdVector, const std::string& vpdFilePath,
+                 size_t vpdStartOffset = 0) :
         m_vpdVector(vpdVector),
         m_vpdFilePath(vpdFilePath), m_vpdStartOffset(vpdStartOffset)
     {
@@ -74,6 +74,15 @@ class IpzVpdParser : public ParserInterface
      * to an offset is not required after header check.
      */
     void checkHeader(types::BinaryVector::const_iterator itrToVPD);
+
+    /**
+     * @brief API to write IPZ type VPD
+     *
+     * This API can be used to write keyword value on IPZ type VPD. Throws
+     * error/exception on failure.
+     */
+    virtual void write(const types::Path i_path, const types::VpdData i_data,
+                       const uint8_t i_target) override;
 
   private:
     /**
@@ -153,8 +162,19 @@ class IpzVpdParser : public ParserInterface
      */
     void processRecord(auto recordOffset);
 
+    /**
+     * @brief API to update record ECC
+     *
+     */
+    void updateRecordECC(const auto& thisRecOffset, const auto& thisRecSize,
+                         const auto& thisRecECCoffset, auto thisRecECCLength);
+
+    void updateThisRecKw(types::BinaryVector::const_iterator& itrToVPD,
+                         const auto ptLength, const auto thisRecord,
+                         const auto thisKeyword, const auto thisValue);
+
     // Holds VPD data.
-    const types::BinaryVector& m_vpdVector;
+    types::BinaryVector m_vpdVector;
 
     // stores parsed VPD data.
     types::IPZVpdMap m_parsedVPDMap{};
