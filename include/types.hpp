@@ -110,6 +110,8 @@ using KwData = std::tuple<Keyword, BinaryVector>;
 using ReadVpdParams = std::variant<std::tuple<Record, Keyword>, Keyword>;
 using VpdData = std::variant<IpzData, KwData>;
 
+using RecordData = std::tuple<RecordOffset, RecordLength, ECCOffset, ECCLength>;
+
 enum class VpdTarget
 {
         Cache = 0,
