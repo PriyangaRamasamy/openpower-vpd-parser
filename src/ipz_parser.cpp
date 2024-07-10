@@ -582,4 +582,59 @@ types::RecordData
 
     return l_recordData;
 }
+
+types::DbusVariantType IpzVpdParser::readKeywordFromHardware(
+    const types::ReadVpdParams i_paramsToReadData)
+{
+    // Extract record and keyword from i_paramsToReadData
+    types::Record l_record;
+    types::Keyword l_keyword;
+
+    if (const types::IpzType* l_ipzData =
+            std::get_if<types::IpzType>(&i_paramsToReadData))
+    {
+        l_record = std::get<0>(*l_ipzData);
+        l_keyword = std::get<1>(*l_ipzData);
+    }
+    else
+    {
+        logging::logMessage("Given VPD is not of type IPZ. Abort read.");
+        throw types::DeviceError::ReadFailure();
+    }
+
+    // Read keyword's value from vector
+    auto l_itrToVPD = m_vpdVector.cbegin();
+
+    if (l_record == "VHDR")
+    {
+        std::ranges::advance(l_itrToVPD, Offset::VHDR_RECORD,
+                             m_vpdVector.cend());
+
+        return types::DbusVariantType{getKeywordValueFromRecord(
+            l_record, l_keyword, Offset::VHDR_RECORD)};
+    }
+
+    // Get VTOC offset
+    std::ranges::advance(l_itrToVPD, Offset::VTOC_PTR, m_vpdVector.cend());
+    auto l_vtocOffset = readUInt16LE(l_itrToVPD);
+
+    if (l_record == "VTOC")
+    {
+        return types::DbusVariantType{
+            getKeywordValueFromRecord(l_record, l_keyword, l_vtocOffset)};
+    }
+
+    // Get record offset from VTOC's PT keyword value.
+    auto l_recordData = getRecordDataFromPT(l_record, l_vtocOffset);
+    const auto l_recordOffset = std::get<0>(l_recordData);
+
+    if (l_recordOffset == 0)
+    {
+        throw std::runtime_error("Record not found in VTOC PT keyword.");
+    }
+
+    // Get the given keyword's value
+    return types::DbusVariantType{
+        getKeywordValueFromRecord(l_record, l_keyword, l_recordOffset)};
+}
 } // namespace vpd
