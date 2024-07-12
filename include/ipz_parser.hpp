@@ -153,6 +153,21 @@ class IpzVpdParser : public ParserInterface
      */
     void processRecord(auto recordOffset);
 
+    /**
+     * @brief API to update record ECC
+     *
+     * API to update the record's ECC.
+     *
+     * In case of any failure, this API throws exception to the caller.
+     *
+     * @param[in] i_recordOffset - Record offset
+     * @param[in] i_recordSize - Record size
+     * @param[in] i_recordECCOffset - Record ECC offset
+     * @param[in] i_recordECCLength - Record ECC length
+     */
+    void updateRecordECC(const auto& i_recordOffset, const auto& i_recordSize,
+                         const auto& i_recordECCOffset, auto i_recordECCLength);
+
     // Holds VPD data.
     const types::BinaryVector& m_vpdVector;
 

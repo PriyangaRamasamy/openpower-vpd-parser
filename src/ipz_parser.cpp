@@ -440,4 +440,32 @@ types::VPDMapVariant IpzVpdParser::parse()
     }
 }
 
+void IpzVpdParser::updateRecordECC(const auto& i_recordOffset,
+                                   const auto& i_recordSize,
+                                   const auto& i_recordECCoffset,
+                                   auto i_recordECCLength)
+{
+    auto l_l_itrToRecordData = m_vpdVector.begin();
+    std::advance(l_itrToRecordData, i_recordOffset);
+
+    auto l_itrToRecordECC = m_vpdVector.begin();
+    std::advance(l_itrToRecordECC, i_recordECCOffset);
+
+    auto l_status = vpdecc_create_ecc(
+        static_cast<uint8_t*>(&l_itrToRecordData[0]), i_recordSize,
+        static_cast<uint8_t*>(&l_itrToRecordECC[0]), &i_recordECCLength);
+
+    if (l_status != VPD_ECC_OK)
+    {
+        throw std::runtime_error("ECC update failed");
+    }
+
+    auto l_endItr = l_itrToRecordECC;
+    std::advance(l_endItr, i_recordECCLength);
+
+    m_vpdFileStream.exceptions(std::ifstream::badbit | std::ifstream::failbit);
+    m_vpdFileStream.seekp(m_vpdStartOffset + i_recordECCOffset, std::ios::beg);
+    std::copy(l_itrToRecordECC, l_endItr,
+              std::ostreambuf_iterator<char>(m_vpdFileStream));
+}
 } // namespace vpd
